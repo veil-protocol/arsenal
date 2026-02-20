@@ -206,10 +206,28 @@ def copy_cmd(text):
     except:
         return False
 
+def in_tmux():
+    """Check if we're running inside tmux."""
+    # Method 1: TMUX env var
+    if os.environ.get("TMUX"):
+        return True
+    # Method 2: TERM contains tmux/screen
+    term = os.environ.get("TERM", "")
+    if "tmux" in term or "screen" in term:
+        return True
+    # Method 3: Check if tmux server is running and we have a pane
+    try:
+        result = subprocess.run(
+            ["tmux", "display-message", "-p", "#{pane_id}"],
+            capture_output=True, timeout=1
+        )
+        return result.returncode == 0 and result.stdout.strip()
+    except:
+        return False
+
 def send_tmux(text, execute=False):
     """Send to tmux pane."""
-    # Check if we're in tmux
-    if not os.environ.get("TMUX"):
+    if not in_tmux():
         return False
     try:
         # For multi-line commands, send each line separately
