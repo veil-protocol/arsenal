@@ -208,15 +208,23 @@ def copy_cmd(text):
 
 def send_tmux(text, execute=False):
     """Send to tmux pane."""
+    # Check if we're in tmux
     if not os.environ.get("TMUX"):
         return False
     try:
-        cmd = ["tmux", "send-keys", text]
+        # For multi-line commands, send each line separately
+        lines = text.split("\n")
+        for i, line in enumerate(lines):
+            # Use -l for literal (no escape interpretation)
+            subprocess.run(["tmux", "send-keys", "-l", line], check=True)
+            # Add newline between lines (but not after last if not executing)
+            if i < len(lines) - 1:
+                subprocess.run(["tmux", "send-keys", "Enter"], check=True)
+
         if execute:
-            cmd.append("Enter")
-        subprocess.run(cmd, check=True)
+            subprocess.run(["tmux", "send-keys", "Enter"], check=True)
         return True
-    except:
+    except Exception:
         return False
 
 # ============================================================================
