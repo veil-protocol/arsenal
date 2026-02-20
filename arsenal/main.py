@@ -582,7 +582,7 @@ def run_tui(stdscr):
                                f"... ({len(wrapped) - preview_lines_avail} more lines)", curses.color_pair(1))
 
         # Draw status
-        status = f" {message} | ←→:cat  ↑↓:nav  Enter:run  ^V:view  ^P:vault  ^G:globals  q:quit "
+        status = f" {message} | Enter:run  ^O:copy  ^V:view  ^P:vault  ^G:globals  q:quit "
         safe_addstr(stdscr, h - 1, 0, status[:w].ljust(w), curses.color_pair(4))
 
         stdscr.refresh()
@@ -633,6 +633,19 @@ def run_tui(stdscr):
                         message = "Copied!"
                     else:
                         message = "Failed"
+
+        elif ch == 15:  # Ctrl+O = copy with params (always clipboard, never tmux)
+            if display_items and selected < len(display_items):
+                item_type, item_data, _ = display_items[selected]
+                if item_type == "cmd":
+                    c = item_data
+                    cmd = interactive_params(stdscr, c["cmd"], globals_dict)
+                    if cmd is None:
+                        message = "Cancelled"
+                    elif copy_cmd(cmd):
+                        message = "Copied!"
+                    else:
+                        message = "Copy failed"
 
         elif ch == 22:  # Ctrl+V = toggle view mode
             view_mode = "flat" if view_mode == "tree" else "tree"
@@ -1192,7 +1205,8 @@ def main():
             print("Keys:")
             print("  ←/→         Switch category")
             print("  ↑/↓         Navigate commands")
-            print("  Enter       Run command (or expand/collapse in tree view)")
+            print("  Enter       Run command (tmux or copy)")
+            print("  Ctrl+O      Copy to clipboard (always, even in tmux)")
             print("  Ctrl+V      Toggle flat/tree view")
             print("  Ctrl+P      Switch vault/playbook")
             print("  Ctrl+Y      Yank raw command (no param editing)")

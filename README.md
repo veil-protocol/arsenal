@@ -53,7 +53,8 @@ arsenal --help       # Show help
 |-----|--------|
 | `←/→` | Switch category |
 | `↑/↓` | Navigate commands |
-| `Enter` | Run command (or expand/collapse in tree view) |
+| `Enter` | Run command (tmux execute or copy) |
+| `Ctrl+O` | Copy to clipboard (always, even in tmux) |
 | `Ctrl+V` | Toggle flat/tree view |
 | `Ctrl+P` | Switch vault/playbook |
 | `Ctrl+Y` | Yank raw command (no param editing) |
