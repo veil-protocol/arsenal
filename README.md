@@ -9,6 +9,7 @@ Built with Python's curses library for maximum compatibility - works on macOS, L
 - **Native curses TUI** - No heavy dependencies, works everywhere
 - **Smart search** - Filters both categories and commands as you type
 - **Category navigation** - Browse cheats by tags (cat/ad, cat/web, cat/privesc, etc.)
+- **Tree view** - Toggle `v` to group commands by tool (nmap, nxc, etc.)
 - **Parameter system** - Use `<param>` placeholders with global variables
 - **Interactive params** - Override values on-the-fly without changing globals
 - **tmux integration** - Send commands directly to tmux panes
@@ -51,7 +52,8 @@ arsenal --help       # Show help
 |-----|--------|
 | `←/→` | Switch category |
 | `↑/↓` | Navigate commands |
-| `Enter` | Edit params → execute in tmux (or copy if no tmux) |
+| `Enter` | Run command (or expand/collapse in tree view) |
+| `v` | Toggle flat/tree view |
 | `Ctrl+Y` | Yank raw command (no param editing) |
 | `Ctrl+A` | Add new cheat command |
 | `Ctrl+G` | Edit global variables |

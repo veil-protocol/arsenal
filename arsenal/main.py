@@ -27,6 +27,44 @@ GLOBALS_FILE = Path.home() / ".arsenal.json"
 # CHEAT PARSING
 # ============================================================================
 
+def get_tool_name(cmd):
+    """Extract tool name from command (first word, ignoring env vars and sudo)."""
+    # Split on newlines, take first line
+    first_line = cmd.strip().split("\n")[0].strip()
+
+    # Skip common prefixes
+    words = first_line.split()
+    skip = {"sudo", "env", "time", "nice", "nohup", "strace", "ltrace"}
+
+    for word in words:
+        # Skip env var assignments (FOO=bar)
+        if "=" in word:
+            continue
+        # Skip common prefixes
+        if word.lower() in skip:
+            continue
+        # Found the tool - clean it up
+        tool = word.split("/")[-1]  # Remove path
+        return tool.lower()
+
+    return "other"
+
+def build_tool_tree(cheats):
+    """Group cheats by tool name, returns {tool: [cheats]} and sorted tool list."""
+    tree = {}
+    for c in cheats:
+        tool = get_tool_name(c["cmd"])
+        if tool not in tree:
+            tree[tool] = []
+        tree[tool].append(c)
+
+    # Sort tools alphabetically, but put "other" last
+    tools = sorted([t for t in tree.keys() if t != "other"])
+    if "other" in tree:
+        tools.append("other")
+
+    return tree, tools
+
 def load_cheats():
     """Load all cheats from markdown files and build tag index."""
     cheats = []
@@ -323,6 +361,11 @@ def run_tui(stdscr):
     focus = "search"  # "search" or "list"
     message = f"Loaded {len(cheats)} cheats"
 
+    # Tree view state
+    view_mode = "flat"  # "flat" or "tree"
+    expanded = set()  # Set of expanded tool names
+    tree_items = []  # List of (type, data) where type is "tool" or "cmd"
+
     while True:
         h, w = stdscr.getmaxyx()
         stdscr.erase()
@@ -351,9 +394,27 @@ def run_tui(stdscr):
         else:
             filtered = pool[:]
 
+        # Build tree view items if in tree mode
+        if view_mode == "tree":
+            tree, tools = build_tool_tree(filtered)
+            tree_items = []
+            for tool in tools:
+                # Filter tools by query too
+                if query and query.lower() not in tool.lower():
+                    # Check if any commands match
+                    if not tree.get(tool):
+                        continue
+                tree_items.append(("tool", tool, len(tree.get(tool, []))))
+                if tool in expanded:
+                    for c in tree.get(tool, []):
+                        tree_items.append(("cmd", c, None))
+            display_items = tree_items
+        else:
+            display_items = [("cmd", c, None) for c in filtered]
+
         # Clamp selection
-        if filtered:
-            selected = max(0, min(selected, len(filtered) - 1))
+        if display_items:
+            selected = max(0, min(selected, len(display_items) - 1))
         else:
             selected = 0
 
@@ -369,10 +430,11 @@ def run_tui(stdscr):
 
         # Draw header with current tag (show tag count when filtering)
         tag_display = current_tag.split("/")[-1] if "/" in current_tag else current_tag
+        mode_indicator = "TREE" if view_mode == "tree" else "FLAT"
         if query and len(filtered_tags) < len(tags):
-            header = f" ARSENAL [{tag_display}] [{len(filtered)}/{len(pool)}] ({len(filtered_tags)} tags) "
+            header = f" ARSENAL [{tag_display}] [{len(filtered)}/{len(pool)}] ({len(filtered_tags)} tags) [{mode_indicator}] "
         else:
-            header = f" ARSENAL [{tag_display}] [{len(filtered)}/{len(pool)}] "
+            header = f" ARSENAL [{tag_display}] [{len(filtered)}/{len(pool)}] [{mode_indicator}] "
         safe_addstr(stdscr, 0, 0, header.center(w), curses.color_pair(4) | curses.A_BOLD)
 
         # Draw tag bar (sliding window centered on current, filtered by search)
@@ -406,17 +468,12 @@ def run_tui(stdscr):
             y = 4 + i
             idx = scroll + i
 
-            if idx >= len(filtered):
+            if idx >= len(display_items):
                 # Clear empty rows
                 safe_addstr(stdscr, y, 0, " " * (w - 1), 0)
                 continue
 
-            c = filtered[idx]
-
-            # Title
-            title = c["title"][:w//3-1]
-            # Command preview (single line)
-            cmd_preview = c["cmd"].replace("\n", " ")[:w*2//3-2]
+            item_type, item_data, item_extra = display_items[idx]
 
             # Highlight selected item (brighter when list is focused)
             if idx == selected:
@@ -427,8 +484,27 @@ def run_tui(stdscr):
             else:
                 attr = 0
 
-            safe_addstr(stdscr, y, 0, title.ljust(w//3), curses.color_pair(1) | attr)
-            safe_addstr(stdscr, y, w//3, cmd_preview.ljust(w - w//3 - 1), curses.color_pair(2) | attr)
+            if item_type == "tool":
+                # Tool header row
+                tool_name = item_data
+                count = item_extra
+                is_expanded = tool_name in expanded
+                prefix = "▼ " if is_expanded else "▶ "
+                display = f"{prefix}{tool_name} ({count})"
+                safe_addstr(stdscr, y, 0, display.ljust(w - 1), curses.color_pair(1) | curses.A_BOLD | attr)
+            else:
+                # Command row
+                c = item_data
+                if view_mode == "tree":
+                    # Indented for tree view
+                    title = "  " + c["title"][:w//3-3]
+                    cmd_preview = c["cmd"].replace("\n", " ")[:w*2//3-2]
+                else:
+                    title = c["title"][:w//3-1]
+                    cmd_preview = c["cmd"].replace("\n", " ")[:w*2//3-2]
+
+                safe_addstr(stdscr, y, 0, title.ljust(w//3), curses.color_pair(1) | attr)
+                safe_addstr(stdscr, y, w//3, cmd_preview.ljust(w - w//3 - 1), curses.color_pair(2) | attr)
 
         # Draw preview
         preview_y = 4 + list_h
@@ -437,23 +513,32 @@ def run_tui(stdscr):
         # Calculate available preview lines (screen height - preview_y - title line - status line)
         preview_lines_avail = max(1, h - preview_y - 3)
 
-        if filtered and selected < len(filtered):
-            c = filtered[selected]
-            safe_addstr(stdscr, preview_y + 1, 0, c["title"][:w-1], curses.color_pair(1) | curses.A_BOLD)
+        if display_items and selected < len(display_items):
+            item_type, item_data, item_extra = display_items[selected]
 
-            # Show command with globals filled, wrapped to fit
-            cmd = fill_params(c["cmd"], globals_dict)
-            wrapped = wrap_text(cmd, w - 1)
-            for i, line in enumerate(wrapped[:preview_lines_avail]):
-                safe_addstr(stdscr, preview_y + 2 + i, 0, line, curses.color_pair(2))
+            if item_type == "tool":
+                # Show tool summary
+                tool_name = item_data
+                count = item_extra
+                safe_addstr(stdscr, preview_y + 1, 0, f"{tool_name} - {count} commands", curses.color_pair(1) | curses.A_BOLD)
+                safe_addstr(stdscr, preview_y + 2, 0, "Press Enter to expand/collapse", curses.color_pair(2))
+            else:
+                c = item_data
+                safe_addstr(stdscr, preview_y + 1, 0, c["title"][:w-1], curses.color_pair(1) | curses.A_BOLD)
 
-            # Show overflow indicator if command is too long
-            if len(wrapped) > preview_lines_avail:
-                safe_addstr(stdscr, preview_y + 2 + preview_lines_avail, 0,
-                           f"... ({len(wrapped) - preview_lines_avail} more lines)", curses.color_pair(1))
+                # Show command with globals filled, wrapped to fit
+                cmd = fill_params(c["cmd"], globals_dict)
+                wrapped = wrap_text(cmd, w - 1)
+                for i, line in enumerate(wrapped[:preview_lines_avail]):
+                    safe_addstr(stdscr, preview_y + 2 + i, 0, line, curses.color_pair(2))
+
+                # Show overflow indicator if command is too long
+                if len(wrapped) > preview_lines_avail:
+                    safe_addstr(stdscr, preview_y + 2 + preview_lines_avail, 0,
+                               f"... ({len(wrapped) - preview_lines_avail} more lines)", curses.color_pair(1))
 
         # Draw status
-        status = f" {message} | ←→:cat  ↑↓:nav  Enter:run  ^A:add  ^G:globals  q:quit "
+        status = f" {message} | ←→:cat  ↑↓:nav  Enter:run  v:view  ^A:add  ^G:globals  q:quit "
         safe_addstr(stdscr, h - 1, 0, status[:w].ljust(w), curses.color_pair(4))
 
         stdscr.refresh()
@@ -482,24 +567,44 @@ def run_tui(stdscr):
             else:
                 focus = "search"
 
-        elif ch == ord('\n'):  # Enter = interactive params then tmux or copy
-            if filtered:
-                cmd = interactive_params(stdscr, filtered[selected]["cmd"], globals_dict)
-                if cmd is None:
-                    message = "Cancelled"
-                elif send_tmux(cmd, execute=True):
-                    message = "Sent to tmux!"
-                elif copy_cmd(cmd):
-                    message = "Copied!"
+        elif ch == ord('\n'):  # Enter = expand/collapse tool OR run command
+            if display_items and selected < len(display_items):
+                item_type, item_data, item_extra = display_items[selected]
+                if item_type == "tool":
+                    # Toggle expand/collapse
+                    tool_name = item_data
+                    if tool_name in expanded:
+                        expanded.remove(tool_name)
+                    else:
+                        expanded.add(tool_name)
                 else:
-                    message = "Failed"
+                    # Run command
+                    c = item_data
+                    cmd = interactive_params(stdscr, c["cmd"], globals_dict)
+                    if cmd is None:
+                        message = "Cancelled"
+                    elif send_tmux(cmd, execute=True):
+                        message = "Sent to tmux!"
+                    elif copy_cmd(cmd):
+                        message = "Copied!"
+                    else:
+                        message = "Failed"
+
+        elif ch == ord('v') and not query:  # 'v' = toggle view mode (when search empty)
+            view_mode = "flat" if view_mode == "tree" else "tree"
+            selected = 0
+            scroll = 0
+            expanded.clear()
+            message = f"View: {view_mode}"
 
         elif ch == 25:  # Ctrl+Y = yank raw (no param editing)
-            if filtered:
-                if copy_cmd(filtered[selected]["cmd"]):
-                    message = "Copied raw!"
-                else:
-                    message = "Copy failed"
+            if display_items and selected < len(display_items):
+                item_type, item_data, _ = display_items[selected]
+                if item_type == "cmd":
+                    if copy_cmd(item_data["cmd"]):
+                        message = "Copied raw!"
+                    else:
+                        message = "Copy failed"
 
         elif ch == 7:  # Ctrl+G = globals editor
             edit_globals(stdscr, globals_dict)
@@ -925,7 +1030,8 @@ def main():
             print("Keys:")
             print("  ←/→         Switch category")
             print("  ↑/↓         Navigate commands")
-            print("  Enter       Edit params → tmux execute (or copy if no tmux)")
+            print("  Enter       Run command (or expand/collapse in tree view)")
+            print("  v           Toggle flat/tree view")
             print("  Ctrl+Y      Yank raw command (no param editing)")
             print("  Ctrl+A      Add new cheat command")
             print("  Ctrl+G      Edit global variables")
