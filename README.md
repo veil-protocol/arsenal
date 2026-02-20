@@ -51,9 +51,7 @@ arsenal --help       # Show help
 |-----|--------|
 | `←/→` | Switch category |
 | `↑/↓` | Navigate commands |
-| `Enter` | Edit params → copy to clipboard |
-| `Ctrl+E` | Edit params → execute in tmux |
-| `Ctrl+T` | Edit params → type in tmux (no enter) |
+| `Enter` | Edit params → execute in tmux (or copy if no tmux) |
 | `Ctrl+Y` | Yank raw command (no param editing) |
 | `Ctrl+A` | Add new cheat command |
 | `Ctrl+G` | Edit global variables |
@@ -125,12 +123,9 @@ Add your own cheats to `~/.cheats/custom.md` or use `Ctrl+A` in the TUI.
 
 ## tmux Integration
 
-When running inside tmux, Arsenal can send commands directly to panes:
+When running inside tmux, Arsenal automatically sends commands to the next pane and executes them. If not in tmux, commands are copied to clipboard instead.
 
-- `Ctrl+E` - Send and execute (adds Enter)
-- `Ctrl+T` - Type only (no Enter, for review)
-
-If not in tmux, commands are copied to clipboard instead.
+Just press `Enter` - Arsenal detects tmux automatically.
 
 ## Color Scheme
 

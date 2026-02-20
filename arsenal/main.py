@@ -226,31 +226,26 @@ def in_tmux():
         return False
 
 def get_tmux_target():
-    """Get the best tmux pane to send commands to (not the current one)."""
+    """Get the best tmux pane to send commands to (not the current one).
+
+    Uses tmux relative targeting:
+    - {last} = the previously active pane
+    - :.+ = next pane in current window (wraps around)
+    """
+    # Check if there are multiple panes
     try:
-        # Get current pane
         result = subprocess.run(
-            ["tmux", "display-message", "-p", "#{pane_id}"],
+            ["tmux", "list-panes"],
             capture_output=True, text=True, timeout=1
         )
-        current = result.stdout.strip()
-
-        # List all panes in current window
-        result = subprocess.run(
-            ["tmux", "list-panes", "-F", "#{pane_id}"],
-            capture_output=True, text=True, timeout=1
-        )
-        panes = result.stdout.strip().split("\n")
-
-        # Find a different pane (prefer next one, or first one that's not current)
-        for pane in panes:
-            if pane and pane != current:
-                return pane
-
-        # Only one pane - return None to indicate we should use last-pane
-        return "!"  # tmux's "last pane" target
+        pane_count = len(result.stdout.strip().split("\n"))
+        if pane_count > 1:
+            # Use "next pane" - more reliable than tracking pane IDs
+            return ":.+"
     except:
-        return "!"
+        pass
+    # Fallback to last pane
+    return "{last}"
 
 def send_tmux(text, execute=False):
     """Send to tmux pane (targets another pane, not current)."""
@@ -458,7 +453,7 @@ def run_tui(stdscr):
                            f"... ({len(wrapped) - preview_lines_avail} more lines)", curses.color_pair(1))
 
         # Draw status
-        status = f" {message} | ←→:cat  ↑↓:nav  Enter:run  ^E:tmux  ^A:add  ^G:globals  q:quit "
+        status = f" {message} | ←→:cat  ↑↓:nav  Enter:run  ^A:add  ^G:globals  q:quit "
         safe_addstr(stdscr, h - 1, 0, status[:w].ljust(w), curses.color_pair(4))
 
         stdscr.refresh()
@@ -487,15 +482,17 @@ def run_tui(stdscr):
             else:
                 focus = "search"
 
-        elif ch == ord('\n'):  # Enter = interactive params then copy
+        elif ch == ord('\n'):  # Enter = interactive params then tmux or copy
             if filtered:
                 cmd = interactive_params(stdscr, filtered[selected]["cmd"], globals_dict)
                 if cmd is None:
                     message = "Cancelled"
+                elif send_tmux(cmd, execute=True):
+                    message = "Sent to tmux!"
                 elif copy_cmd(cmd):
                     message = "Copied!"
                 else:
-                    message = "Copy failed"
+                    message = "Failed"
 
         elif ch == 25:  # Ctrl+Y = yank raw (no param editing)
             if filtered:
@@ -503,29 +500,6 @@ def run_tui(stdscr):
                     message = "Copied raw!"
                 else:
                     message = "Copy failed"
-
-        elif ch == 5:  # Ctrl+E = interactive params then execute in tmux
-            if filtered:
-                cmd = interactive_params(stdscr, filtered[selected]["cmd"], globals_dict)
-                if cmd is None:
-                    message = "Cancelled"
-                elif send_tmux(cmd, execute=True):
-                    message = "Sent to tmux!"
-                else:
-                    if copy_cmd(cmd):
-                        message = "No tmux, copied instead"
-                    else:
-                        message = "Failed"
-
-        elif ch == 20:  # Ctrl+T = interactive params then type in tmux (no enter)
-            if filtered:
-                cmd = interactive_params(stdscr, filtered[selected]["cmd"], globals_dict)
-                if cmd is None:
-                    message = "Cancelled"
-                elif send_tmux(cmd, execute=False):
-                    message = "Typed in tmux"
-                else:
-                    message = "No tmux session"
 
         elif ch == 7:  # Ctrl+G = globals editor
             edit_globals(stdscr, globals_dict)
@@ -951,9 +925,7 @@ def main():
             print("Keys:")
             print("  ←/→         Switch category")
             print("  ↑/↓         Navigate commands")
-            print("  Enter       Edit params → copy to clipboard")
-            print("  Ctrl+E      Edit params → execute in tmux")
-            print("  Ctrl+T      Edit params → type in tmux (no enter)")
+            print("  Enter       Edit params → tmux execute (or copy if no tmux)")
             print("  Ctrl+Y      Yank raw command (no param editing)")
             print("  Ctrl+A      Add new cheat command")
             print("  Ctrl+G      Edit global variables")
