@@ -82,7 +82,7 @@ Arsenal reads markdown files from:
 
 ### Markdown Format
 
-```markdown
+````markdown
 # Category Header
 #cat/recon #cat/nmap
 
@@ -96,7 +96,7 @@ nmap -sV -sC <ip> -oN scan.txt
 ```
 nmap -p- <ip> -oN full.txt
 ```
-```
+````
 
 ### Parameters
 
