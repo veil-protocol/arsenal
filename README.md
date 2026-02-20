@@ -9,7 +9,8 @@ Built with Python's curses library for maximum compatibility - works on macOS, L
 - **Native curses TUI** - No heavy dependencies, works everywhere
 - **Smart search** - Filters both categories and commands as you type
 - **Category navigation** - Browse cheats by tags (cat/ad, cat/web, cat/privesc, etc.)
-- **Tree view** - Toggle `v` to group commands by tool (nmap, nxc, etc.)
+- **Tree view** - Toggle `Ctrl+V` to group commands by tool (nmap, nxc, etc.)
+- **Vault switching** - Switch between cheat collections on-the-fly (`Ctrl+P`)
 - **Parameter system** - Use `<param>` placeholders with global variables
 - **Interactive params** - Override values on-the-fly without changing globals
 - **tmux integration** - Send commands directly to tmux panes
@@ -53,7 +54,8 @@ arsenal --help       # Show help
 | `←/→` | Switch category |
 | `↑/↓` | Navigate commands |
 | `Enter` | Run command (or expand/collapse in tree view) |
-| `v` | Toggle flat/tree view |
+| `Ctrl+V` | Toggle flat/tree view |
+| `Ctrl+P` | Switch vault/playbook |
 | `Ctrl+Y` | Yank raw command (no param editing) |
 | `Ctrl+A` | Add new cheat command |
 | `Ctrl+G` | Edit global variables |
@@ -122,6 +124,21 @@ Global variables are stored in `~/.arsenal.json`:
 ### Custom Cheats
 
 Add your own cheats to `~/.cheats/custom.md` or use `Ctrl+A` in the TUI.
+
+### Vaults / Playbooks
+
+Switch between different cheat collections with `Ctrl+P`. Vaults are auto-discovered from:
+- `~/.arsenal-playbooks/` - subdirectories become vaults
+- `/opt/playbooks/` - subdirectories become vaults
+
+Or define custom vaults in `~/.arsenal-vaults.json`:
+
+```json
+{
+  "oscp": ["/path/to/oscp-cheats"],
+  "htb": ["/path/to/htb-cheats", "/path/to/more-cheats"]
+}
+```
 
 ## tmux Integration
 

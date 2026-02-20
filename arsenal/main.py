@@ -15,13 +15,52 @@ from pathlib import Path
 # CONFIG
 # ============================================================================
 
-CHEAT_PATHS = [
+# Default cheat paths (combined into "default" vault)
+DEFAULT_CHEAT_PATHS = [
     Path.home() / ".cheats",
     Path.home() / ".local/share/uv/tools/aliasr/lib/python3.14/site-packages/aliasr/data/cheats",
     Path("/opt/my-resources/setup/arsenal-cheats"),
 ]
 
 GLOBALS_FILE = Path.home() / ".arsenal.json"
+VAULTS_FILE = Path.home() / ".arsenal-vaults.json"
+
+def load_vaults():
+    """Load vault configurations. Returns dict of {name: [paths]}."""
+    vaults = {"default": DEFAULT_CHEAT_PATHS}
+
+    # Load custom vaults from config
+    if VAULTS_FILE.exists():
+        try:
+            with open(VAULTS_FILE) as f:
+                custom = json.load(f)
+                for name, paths in custom.items():
+                    vaults[name] = [Path(p) for p in paths]
+        except:
+            pass
+
+    # Auto-discover playbook directories
+    playbook_dirs = [
+        Path.home() / ".arsenal-playbooks",
+        Path("/opt/playbooks"),
+    ]
+    for pdir in playbook_dirs:
+        if pdir.exists():
+            for subdir in pdir.iterdir():
+                if subdir.is_dir() and not subdir.name.startswith("."):
+                    vaults[subdir.name] = [subdir]
+
+    return vaults
+
+def save_vaults(vaults):
+    """Save custom vaults (excluding default and auto-discovered)."""
+    # Only save custom vaults, not default or auto-discovered
+    custom = {}
+    for name, paths in vaults.items():
+        if name != "default":
+            custom[name] = [str(p) for p in paths]
+    with open(VAULTS_FILE, "w") as f:
+        json.dump(custom, f, indent=2)
 
 # ============================================================================
 # CHEAT PARSING
@@ -65,11 +104,14 @@ def build_tool_tree(cheats):
 
     return tree, tools
 
-def load_cheats():
+def load_cheats(paths=None):
     """Load all cheats from markdown files and build tag index."""
+    if paths is None:
+        paths = DEFAULT_CHEAT_PATHS
+
     cheats = []
 
-    for base in CHEAT_PATHS:
+    for base in paths:
         if not base.exists():
             continue
         for md in base.rglob("*.md"):
@@ -340,8 +382,10 @@ def run_tui(stdscr):
     except:
         pass
 
-    # Load data
-    cheats, tag_to_cheats, tags = load_cheats()
+    # Load vaults and cheats
+    vaults = load_vaults()
+    current_vault = "default"
+    cheats, tag_to_cheats, tags = load_cheats(vaults.get(current_vault, DEFAULT_CHEAT_PATHS))
     if not cheats:
         safe_addstr(stdscr, 0, 0, "No cheats found! Check ~/.cheats or aliasr installation")
         stdscr.getch()
@@ -359,7 +403,7 @@ def run_tui(stdscr):
     pool = cheats[:]  # Cheats in current tag
     filtered = cheats[:]  # Filtered by search
     focus = "search"  # "search" or "list"
-    message = f"Loaded {len(cheats)} cheats"
+    message = f"[{current_vault}] {len(cheats)} cheats"
 
     # Tree view state
     view_mode = "flat"  # "flat" or "tree"
@@ -538,7 +582,7 @@ def run_tui(stdscr):
                                f"... ({len(wrapped) - preview_lines_avail} more lines)", curses.color_pair(1))
 
         # Draw status
-        status = f" {message} | ←→:cat  ↑↓:nav  Enter:run  v:view  ^A:add  ^G:globals  q:quit "
+        status = f" {message} | ←→:cat  ↑↓:nav  Enter:run  ^V:view  ^P:vault  ^G:globals  q:quit "
         safe_addstr(stdscr, h - 1, 0, status[:w].ljust(w), curses.color_pair(4))
 
         stdscr.refresh()
@@ -590,12 +634,29 @@ def run_tui(stdscr):
                     else:
                         message = "Failed"
 
-        elif ch == ord('v') and not query:  # 'v' = toggle view mode (when search empty)
+        elif ch == 22:  # Ctrl+V = toggle view mode
             view_mode = "flat" if view_mode == "tree" else "tree"
             selected = 0
             scroll = 0
             expanded.clear()
             message = f"View: {view_mode}"
+
+        elif ch == 16:  # Ctrl+P = pick vault/playbook
+            new_vault = pick_vault(stdscr, current_vault)
+            if new_vault and new_vault != current_vault:
+                current_vault = new_vault
+                vaults = load_vaults()  # Refresh vaults
+                cheats, tag_to_cheats, tags = load_cheats(vaults.get(current_vault, DEFAULT_CHEAT_PATHS))
+                globals_dict = load_globals(cheats)
+                current_tag = "all"
+                current_tag_idx = 0
+                selected = 0
+                scroll = 0
+                query = ""
+                expanded.clear()
+                message = f"[{current_vault}] {len(cheats)} cheats"
+            elif new_vault is None:
+                message = "Cancelled"
 
         elif ch == 25:  # Ctrl+Y = yank raw (no param editing)
             if display_items and selected < len(display_items):
@@ -675,6 +736,107 @@ def run_tui(stdscr):
 
         elif ch == curses.KEY_PPAGE or ch == 21:  # Page Up
             selected = max(selected - list_h, 0)
+
+def pick_vault(stdscr, current_vault):
+    """Vault/playbook picker. Returns selected vault name or None if cancelled."""
+    stdscr.keypad(True)
+    vaults = load_vaults()
+    vault_names = list(vaults.keys())
+
+    # Put current vault first, then sort the rest
+    if current_vault in vault_names:
+        vault_names.remove(current_vault)
+        vault_names = [current_vault] + sorted(vault_names)
+    else:
+        vault_names = sorted(vault_names)
+
+    selected = 0
+    scroll = 0
+    query = ""
+
+    while True:
+        h, w = stdscr.getmaxyx()
+        stdscr.erase()
+
+        # Filter vaults by query
+        if query:
+            q = query.lower()
+            filtered = [v for v in vault_names if q in v.lower()]
+        else:
+            filtered = vault_names[:]
+
+        # Clamp selection
+        if filtered:
+            selected = max(0, min(selected, len(filtered) - 1))
+        else:
+            selected = 0
+
+        list_h = max(1, h - 6)
+
+        # Scroll
+        if selected < scroll:
+            scroll = selected
+        if selected >= scroll + list_h:
+            scroll = selected - list_h + 1
+        scroll = max(0, scroll)
+
+        # Header
+        safe_addstr(stdscr, 0, 0, " SELECT VAULT/PLAYBOOK ".center(w), curses.color_pair(4) | curses.A_BOLD)
+
+        # Search
+        safe_addstr(stdscr, 2, 0, "> " + query + "█", curses.color_pair(3))
+
+        # List
+        for i in range(list_h):
+            y = 4 + i
+            idx = scroll + i
+
+            if idx >= len(filtered):
+                safe_addstr(stdscr, y, 0, " " * (w - 1), 0)
+                continue
+
+            vault_name = filtered[idx]
+            paths = vaults.get(vault_name, [])
+            path_str = str(paths[0]) if paths else "?"
+
+            # Count cheats in this vault (expensive, but cached display)
+            is_current = vault_name == current_vault
+
+            if idx == selected:
+                attr = curses.A_REVERSE
+            else:
+                attr = 0
+
+            prefix = "● " if is_current else "  "
+            display = f"{prefix}{vault_name}"
+            safe_addstr(stdscr, y, 0, display[:w//3].ljust(w//3), curses.color_pair(1) | curses.A_BOLD | attr)
+            safe_addstr(stdscr, y, w//3, path_str[:w*2//3-1], curses.color_pair(2) | attr)
+
+        # Status
+        status = " Enter:select  Esc:cancel "
+        safe_addstr(stdscr, h - 1, 0, status.center(w), curses.color_pair(4))
+
+        stdscr.refresh()
+        ch = stdscr.getch()
+
+        if ch == 27:  # Esc
+            return None
+        elif ch == ord('\n'):
+            if filtered:
+                return filtered[selected]
+            return None
+        elif ch == curses.KEY_DOWN:
+            selected = min(selected + 1, len(filtered) - 1) if filtered else 0
+        elif ch == curses.KEY_UP:
+            selected = max(selected - 1, 0)
+        elif ch == curses.KEY_BACKSPACE or ch == 127 or ch == 8:
+            query = query[:-1]
+            selected = 0
+            scroll = 0
+        elif 32 <= ch <= 126:
+            query += chr(ch)
+            selected = 0
+            scroll = 0
 
 def edit_globals(stdscr, globals_dict):
     """Globals editor with search and scroll."""
@@ -1031,7 +1193,8 @@ def main():
             print("  ←/→         Switch category")
             print("  ↑/↓         Navigate commands")
             print("  Enter       Run command (or expand/collapse in tree view)")
-            print("  v           Toggle flat/tree view")
+            print("  Ctrl+V      Toggle flat/tree view")
+            print("  Ctrl+P      Switch vault/playbook")
             print("  Ctrl+Y      Yank raw command (no param editing)")
             print("  Ctrl+A      Add new cheat command")
             print("  Ctrl+G      Edit global variables")
