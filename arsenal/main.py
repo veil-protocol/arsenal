@@ -717,12 +717,12 @@ def run_tui(stdscr):
             selected = 0
             scroll = 0
 
-        # Up/Down - list navigation
+        # Up/Down - list navigation (use display_items for both flat and tree view)
         elif ch == curses.KEY_DOWN:
             if focus == "search":
                 focus = "list"
             else:
-                selected = min(selected + 1, len(filtered) - 1) if filtered else 0
+                selected = min(selected + 1, len(display_items) - 1) if display_items else 0
 
         elif ch == curses.KEY_UP:
             if focus == "list" and selected > 0:
@@ -732,7 +732,7 @@ def run_tui(stdscr):
 
         elif ch == curses.KEY_NPAGE or ch == 4:  # Page Down
             focus = "list"
-            selected = min(selected + list_h, len(filtered) - 1) if filtered else 0
+            selected = min(selected + list_h, len(display_items) - 1) if display_items else 0
 
         elif ch == curses.KEY_PPAGE or ch == 21:  # Page Up
             selected = max(selected - list_h, 0)
