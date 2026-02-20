@@ -225,22 +225,51 @@ def in_tmux():
     except:
         return False
 
+def get_tmux_target():
+    """Get the best tmux pane to send commands to (not the current one)."""
+    try:
+        # Get current pane
+        result = subprocess.run(
+            ["tmux", "display-message", "-p", "#{pane_id}"],
+            capture_output=True, text=True, timeout=1
+        )
+        current = result.stdout.strip()
+
+        # List all panes in current window
+        result = subprocess.run(
+            ["tmux", "list-panes", "-F", "#{pane_id}"],
+            capture_output=True, text=True, timeout=1
+        )
+        panes = result.stdout.strip().split("\n")
+
+        # Find a different pane (prefer next one, or first one that's not current)
+        for pane in panes:
+            if pane and pane != current:
+                return pane
+
+        # Only one pane - return None to indicate we should use last-pane
+        return "!"  # tmux's "last pane" target
+    except:
+        return "!"
+
 def send_tmux(text, execute=False):
-    """Send to tmux pane."""
+    """Send to tmux pane (targets another pane, not current)."""
     if not in_tmux():
         return False
     try:
+        target = get_tmux_target()
+
         # For multi-line commands, send each line separately
         lines = text.split("\n")
         for i, line in enumerate(lines):
-            # Use -l for literal (no escape interpretation)
-            subprocess.run(["tmux", "send-keys", "-l", line], check=True)
+            # Use -l for literal, -t for target pane
+            subprocess.run(["tmux", "send-keys", "-t", target, "-l", line], check=True)
             # Add newline between lines (but not after last if not executing)
             if i < len(lines) - 1:
-                subprocess.run(["tmux", "send-keys", "Enter"], check=True)
+                subprocess.run(["tmux", "send-keys", "-t", target, "Enter"], check=True)
 
         if execute:
-            subprocess.run(["tmux", "send-keys", "Enter"], check=True)
+            subprocess.run(["tmux", "send-keys", "-t", target, "Enter"], check=True)
         return True
     except Exception:
         return False
