@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "arsenal-tui"
+version = "1.0.0"
+description = "Native terminal cheat launcher for pentesters"
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "Veil Protocol", email = "dev@veil-protocol.org" }
+]
+keywords = ["pentesting", "security", "cheatsheet", "terminal", "tui", "curses"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Environment :: Console :: Curses",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Topic :: Utilities",
+]
+requires-python = ">=3.10"
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/veil-protocol/arsenal"
+Repository = "https://github.com/veil-protocol/arsenal"
+Issues = "https://github.com/veil-protocol/arsenal/issues"
+
+[project.scripts]
+arsenal = "arsenal.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["arsenal"]
