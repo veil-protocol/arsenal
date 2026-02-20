@@ -305,14 +305,49 @@ def in_tmux():
     except:
         return False
 
-def get_tmux_target():
-    """Get the best tmux pane to send commands to (not the current one).
+def list_tmux_panes():
+    """List all tmux panes with their info."""
+    panes = []
+    try:
+        # Get current pane to mark it
+        result = subprocess.run(
+            ["tmux", "display-message", "-p", "#{pane_id}"],
+            capture_output=True, text=True, timeout=1
+        )
+        current_pane = result.stdout.strip()
 
-    Uses tmux relative targeting:
-    - {last} = the previously active pane
-    - :.+ = next pane in current window (wraps around)
-    """
-    # Check if there are multiple panes
+        # List all panes with info
+        result = subprocess.run(
+            ["tmux", "list-panes", "-a", "-F", "#{session_name}:#{window_index}.#{pane_index} #{pane_id} #{pane_current_command} #{pane_width}x#{pane_height}"],
+            capture_output=True, text=True, timeout=1
+        )
+        for line in result.stdout.strip().split("\n"):
+            if line:
+                parts = line.split(" ", 3)
+                if len(parts) >= 3:
+                    panes.append({
+                        "target": parts[0],
+                        "id": parts[1],
+                        "cmd": parts[2] if len(parts) > 2 else "?",
+                        "size": parts[3] if len(parts) > 3 else "",
+                        "current": parts[1] == current_pane
+                    })
+    except:
+        pass
+    return panes
+
+# Global target pane (None = auto-select next pane)
+TMUX_TARGET_PANE = None
+
+def get_tmux_target():
+    """Get the tmux pane to send commands to."""
+    global TMUX_TARGET_PANE
+
+    # If user selected a specific pane, use it
+    if TMUX_TARGET_PANE:
+        return TMUX_TARGET_PANE
+
+    # Otherwise auto-select next pane
     try:
         result = subprocess.run(
             ["tmux", "list-panes"],
@@ -320,12 +355,15 @@ def get_tmux_target():
         )
         pane_count = len(result.stdout.strip().split("\n"))
         if pane_count > 1:
-            # Use "next pane" - more reliable than tracking pane IDs
             return ":.+"
     except:
         pass
-    # Fallback to last pane
     return "{last}"
+
+def set_tmux_target(target):
+    """Set the target pane for sending commands."""
+    global TMUX_TARGET_PANE
+    TMUX_TARGET_PANE = target
 
 def send_tmux(text, execute=False):
     """Send to tmux pane (targets another pane, not current)."""
@@ -582,7 +620,12 @@ def run_tui(stdscr):
                                f"... ({len(wrapped) - preview_lines_avail} more lines)", curses.color_pair(1))
 
         # Draw status
-        status = f" {message} | Enter:run  ^O:copy  ^V:view  ^P:vault  ^G:globals  q:quit "
+        target_pane = TMUX_TARGET_PANE
+        if target_pane and in_tmux():
+            pane_indicator = f"[→{target_pane}] "
+        else:
+            pane_indicator = ""
+        status = f" {pane_indicator}{message} | Enter:run  ^O:copy  ^T:pane  ^V:view  ^P:vault  q:quit "
         safe_addstr(stdscr, h - 1, 0, status[:w].ljust(w), curses.color_pair(4))
 
         stdscr.refresh()
@@ -699,6 +742,20 @@ def run_tui(stdscr):
             else:
                 message = "Cancelled"
 
+        elif ch == 20:  # Ctrl+T = pick target pane
+            if in_tmux():
+                result = pick_pane(stdscr)
+                if result is None:
+                    message = "Cancelled"
+                elif result == "":
+                    set_tmux_target(None)
+                    message = "Target: auto (next pane)"
+                else:
+                    set_tmux_target(result)
+                    message = f"Target: {result}"
+            else:
+                message = "Not in tmux"
+
         elif ch == curses.KEY_BACKSPACE or ch == 127 or ch == 8:
             query = query[:-1]
             selected = 0
@@ -749,6 +806,75 @@ def run_tui(stdscr):
 
         elif ch == curses.KEY_PPAGE or ch == 21:  # Page Up
             selected = max(selected - list_h, 0)
+
+def pick_pane(stdscr):
+    """Pane picker. Returns selected pane target or None if cancelled."""
+    global TMUX_TARGET_PANE
+    stdscr.keypad(True)
+
+    panes = list_tmux_panes()
+    if not panes:
+        return None
+
+    # Filter out current pane (where arsenal is running)
+    panes = [p for p in panes if not p["current"]]
+    if not panes:
+        return None
+
+    selected = 0
+    current_target = TMUX_TARGET_PANE
+
+    while True:
+        h, w = stdscr.getmaxyx()
+        stdscr.erase()
+
+        list_h = max(1, h - 6)
+
+        # Header
+        safe_addstr(stdscr, 0, 0, " SELECT TARGET PANE ".center(w), curses.color_pair(4) | curses.A_BOLD)
+
+        current_display = current_target if current_target else "auto (next pane)"
+        safe_addstr(stdscr, 2, 0, f"Current: {current_display}", curses.color_pair(2))
+
+        # List panes
+        for i in range(min(list_h, len(panes))):
+            y = 4 + i
+            idx = i
+
+            if idx >= len(panes):
+                break
+
+            pane = panes[idx]
+            is_selected_target = pane["target"] == current_target
+
+            if idx == selected:
+                attr = curses.A_REVERSE
+            else:
+                attr = 0
+
+            prefix = "● " if is_selected_target else "  "
+            display = f"{prefix}{pane['target']} [{pane['cmd']}] {pane['size']}"
+            safe_addstr(stdscr, y, 0, display[:w-1], curses.color_pair(1) | attr)
+
+        # Status
+        status = " Enter:select  a:auto  Esc:cancel "
+        safe_addstr(stdscr, h - 1, 0, status.center(w), curses.color_pair(4))
+
+        stdscr.refresh()
+        ch = stdscr.getch()
+
+        if ch == 27:  # Esc
+            return None
+        elif ch == ord('\n'):
+            if panes:
+                return panes[selected]["target"]
+            return None
+        elif ch == ord('a'):  # Auto mode
+            return ""  # Empty string = auto
+        elif ch == curses.KEY_DOWN:
+            selected = min(selected + 1, len(panes) - 1)
+        elif ch == curses.KEY_UP:
+            selected = max(selected - 1, 0)
 
 def pick_vault(stdscr, current_vault):
     """Vault/playbook picker. Returns selected vault name or None if cancelled."""
@@ -1207,6 +1333,7 @@ def main():
             print("  ↑/↓         Navigate commands")
             print("  Enter       Run command (tmux or copy)")
             print("  Ctrl+O      Copy to clipboard (always, even in tmux)")
+            print("  Ctrl+T      Pick target tmux pane")
             print("  Ctrl+V      Toggle flat/tree view")
             print("  Ctrl+P      Switch vault/playbook")
             print("  Ctrl+Y      Yank raw command (no param editing)")

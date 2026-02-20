@@ -55,6 +55,7 @@ arsenal --help       # Show help
 | `↑/↓` | Navigate commands |
 | `Enter` | Run command (tmux execute or copy) |
 | `Ctrl+O` | Copy to clipboard (always, even in tmux) |
+| `Ctrl+T` | Pick target tmux pane |
 | `Ctrl+V` | Toggle flat/tree view |
 | `Ctrl+P` | Switch vault/playbook |
 | `Ctrl+Y` | Yank raw command (no param editing) |
