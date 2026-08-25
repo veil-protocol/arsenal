@@ -8,6 +8,7 @@ Based on [aliasr](https://github.com/Mojo8898/aliasr) - rebuilt with Python's cu
 
 ## Features
 
+- **Batteries included** - Ships with 200+ built-in commands; never empty on a fresh install
 - **Native curses TUI** - No heavy dependencies, works everywhere
 - **Smart search** - Filters both categories and commands as you type
 - **Category navigation** - Browse cheats by tags (cat/ad, cat/web, cat/privesc, etc.)
@@ -16,7 +17,7 @@ Based on [aliasr](https://github.com/Mojo8898/aliasr) - rebuilt with Python's cu
 - **Parameter system** - Use `<param>` placeholders with global variables
 - **Interactive params** - Override values on-the-fly without changing globals
 - **tmux integration** - Send commands directly to tmux panes
-- **Add cheats** - Create new commands from within the TUI
+- **Add cheats** - Create new commands from the TUI (`Ctrl+A`) or the CLI (`arsenal add`)
 - **Aliasr compatible** - Reads standard aliasr markdown cheat format
 
 ## Installation
@@ -44,10 +45,21 @@ uv tool install arsenal-tui
 ## Usage
 
 ```bash
-arsenal              # Launch TUI
-arsenal scan <ip>    # Quick-set target IP
-arsenal --help       # Show help
+arsenal                                   # Launch TUI
+arsenal scan <ip>                         # Quick-set target IP global
+arsenal --help                            # Show help
+
+# Manage cheats from the command line (scriptable — handy from a tmux pane)
+arsenal add "<title>" "<command>"         # Add a cheat (defaults to the "custom" sheet)
+arsenal add "Full TCP scan" "nmap -p- <ip>" --tags cat/recon cat/nmap --sheet nmap
+arsenal new <sheet>                       # Create a new (empty) cheat sheet
+arsenal sheets                            # List every loaded cheat file
 ```
+
+`arsenal add` appends to `~/.cheats/<sheet>.md`, creating the sheet if it
+doesn't exist. `--tags` takes space-separated tags (the `#` is optional) and
+`--sheet` chooses the target file (default: `custom`). `<param>` placeholders
+in the command are auto-added to your globals.
 
 ## Keybindings
 
@@ -78,9 +90,15 @@ arsenal --help       # Show help
 
 ## Cheat Format
 
-Arsenal reads markdown files from:
-- `~/.cheats/`
-- Aliasr default paths
+Arsenal ships with a **built-in library of 200+ commands** (bundled inside the
+package at `arsenal/data/cheats/`), so a fresh install is never empty. On top of
+that it reads markdown files from, in order of precedence:
+- `arsenal/data/cheats/` - bundled default library (shipped with the package)
+- `~/.cheats/` - your writable overlay (where `arsenal add` and the TUI save)
+- `/opt/my-resources/setup/arsenal-cheats/` - optional system-wide location
+
+To make a custom cheat a permanent default, drop its `.md` into
+`arsenal/data/cheats/` in a checkout and commit it.
 
 ### Markdown Format
 
@@ -127,7 +145,12 @@ Global variables are stored in `~/.arsenal.json`:
 
 ### Custom Cheats
 
-Add your own cheats to `~/.cheats/custom.md` or use `Ctrl+A` in the TUI.
+Add your own cheats three ways:
+- `arsenal add "<title>" "<command>" [--tags ..] [--sheet NAME]` from the shell
+- `Ctrl+A` inside the TUI
+- Hand-edit any `.md` under `~/.cheats/`
+
+All three write to `~/.cheats/`, keeping the bundled default library untouched.
 
 ### Vaults / Playbooks
 
