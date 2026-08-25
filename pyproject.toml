@@ -43,3 +43,10 @@ arsenal = "arsenal.main:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["arsenal"]
+# Ship the bundled default cheat library (markdown) inside the wheel so a fresh
+# install is never empty.
+artifacts = ["arsenal/data/**/*.md"]
+
+[tool.hatch.build.targets.sdist]
+include = ["arsenal", "README.md", "LICENSE"]
+artifacts = ["arsenal/data/**/*.md"]

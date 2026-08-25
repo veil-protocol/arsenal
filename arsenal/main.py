@@ -15,10 +15,19 @@ from pathlib import Path
 # CONFIG
 # ============================================================================
 
-# Default cheat paths (combined into "default" vault)
+# Cheats bundled inside the package (ships with the wheel, works after pip install
+# and travels with the repo across machines). This is the built-in default library.
+BUNDLED_CHEATS = Path(__file__).resolve().parent / "data" / "cheats"
+
+# User-writable overlay (custom cheats added via TUI/CLI land here).
+USER_CHEATS = Path.home() / ".cheats"
+
+# Default cheat paths (combined into "default" vault). Order = precedence for display;
+# bundled library first so a fresh install is never empty, then user overlay, then
+# optional system-wide locations.
 DEFAULT_CHEAT_PATHS = [
-    Path.home() / ".cheats",
-    Path.home() / ".local/share/uv/tools/aliasr/lib/python3.14/site-packages/aliasr/data/cheats",
+    BUNDLED_CHEATS,
+    USER_CHEATS,
     Path("/opt/my-resources/setup/arsenal-cheats"),
 ]
 
@@ -1179,8 +1188,6 @@ def interactive_params(stdscr, cmd, globals_dict):
 
 def add_cheat(stdscr, globals_dict):
     """Add a new cheat command. Returns True if cheat was added."""
-    CUSTOM_FILE = Path.home() / ".cheats" / "custom.md"
-
     fields = ["title", "command", "tags"]
     values = {"title": "", "command": "", "tags": ""}
     selected = 0
@@ -1281,22 +1288,9 @@ def add_cheat(stdscr, globals_dict):
                 if not values["title"] or not values["command"]:
                     continue  # Need at least title and command
 
-                # Ensure ~/.cheats exists
-                CUSTOM_FILE.parent.mkdir(parents=True, exist_ok=True)
-
-                # Build markdown entry
-                entry = f"\n## {values['title']}\n"
-                if values["tags"]:
-                    for tag in values["tags"].split():
-                        entry += f"#{tag} "
-                    entry += "\n"
-                entry += "```\n"
-                entry += values["command"]
-                entry += "\n```\n"
-
-                # Append to custom file
-                with open(CUSTOM_FILE, "a") as f:
-                    f.write(entry)
+                # Write via the shared helper (same path the CLI uses)
+                append_cheat("custom", values["title"], values["command"],
+                             values["tags"].split() if values["tags"] else None)
 
                 # Extract new params and add to globals
                 for param in get_params(values["command"]):
@@ -1313,9 +1307,88 @@ def add_cheat(stdscr, globals_dict):
                 editing = True
                 edit_buf = values[fields[selected]].replace("\n", "\\n")
 
+# ============================================================================
+# CLI CHEAT MANAGEMENT (scriptable add / new sheet)
+# ============================================================================
+
+def sheet_path(sheet):
+    """Resolve a sheet name to a file under the user cheats dir. '.md' optional."""
+    name = sheet if sheet.endswith(".md") else f"{sheet}.md"
+    return USER_CHEATS / name
+
+def new_sheet(sheet, tags=None):
+    """Create a new (empty) cheat sheet under ~/.cheats. Returns the path."""
+    path = sheet_path(sheet)
+    if path.exists():
+        return path
+    USER_CHEATS.mkdir(parents=True, exist_ok=True)
+    title = path.stem.replace("_", " ").replace("-", " ").strip().title() or path.stem
+    header = f"# {title}\n"
+    if tags:
+        header += " ".join(f"#{t}" for t in tags) + "\n"
+    path.write_text(header)
+    return path
+
+def append_cheat(sheet, title, command, tags=None):
+    """Append a cheat to a sheet (creating it if missing). Returns the path."""
+    path = sheet_path(sheet)
+    if not path.exists():
+        new_sheet(sheet)
+    entry = f"\n## {title}\n"
+    if tags:
+        entry += " ".join(f"#{t}" for t in tags) + "\n"
+    entry += "```\n" + command.rstrip("\n") + "\n```\n"
+    with open(path, "a") as f:
+        f.write(entry)
+    return path
+
+def _parse_add_args(argv):
+    """Parse: add TITLE COMMAND [--tags a b c] [--sheet NAME]. Returns dict or None."""
+    positional, tags, sheet = [], [], "custom"
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a in ("--sheet", "-s"):
+            i += 1
+            if i >= len(argv):
+                return None
+            sheet = argv[i]
+        elif a in ("--tags", "-t"):
+            i += 1
+            while i < len(argv) and not argv[i].startswith("-"):
+                tags.append(argv[i].lstrip("#"))
+                i += 1
+            continue
+        else:
+            positional.append(a)
+        i += 1
+    if len(positional) < 2:
+        return None
+    return {"title": positional[0], "command": positional[1], "tags": tags, "sheet": sheet}
+
 def main():
     if len(sys.argv) > 1:
-        if sys.argv[1] == "scan" and len(sys.argv) > 2:
+        if sys.argv[1] == "add":
+            parsed = _parse_add_args(sys.argv[2:])
+            if not parsed:
+                print('Usage: arsenal add "<title>" "<command>" [--tags t1 t2] [--sheet NAME]')
+                print('  e.g. arsenal add "Full TCP scan" "nmap -p- <ip>" --tags cat/recon --sheet nmap')
+                return 1
+            path = append_cheat(parsed["sheet"], parsed["title"], parsed["command"], parsed["tags"])
+            print(f"Added '{parsed['title']}' -> {path}")
+            return 0
+        elif sys.argv[1] == "new" and len(sys.argv) > 2:
+            path = new_sheet(sys.argv[2])
+            print(f"Sheet ready: {path}")
+            return 0
+        elif sys.argv[1] == "sheets":
+            for base in DEFAULT_CHEAT_PATHS:
+                if base.exists():
+                    for md in sorted(base.rglob("*.md")):
+                        if md.name.lower() != "readme.md":
+                            print(md)
+            return 0
+        elif sys.argv[1] == "scan" and len(sys.argv) > 2:
             g = load_globals_simple()
             g["ip"] = sys.argv[2]
             save_globals(g)
@@ -1325,8 +1398,11 @@ def main():
             print("arsenal - Native terminal cheat launcher")
             print("")
             print("Usage:")
-            print("  arsenal              Launch TUI")
-            print("  arsenal scan <ip>    Set target IP")
+            print("  arsenal                          Launch TUI")
+            print("  arsenal scan <ip>                Set target IP global")
+            print('  arsenal add "<title>" "<cmd>"    Add a cheat (--tags .. --sheet NAME)')
+            print("  arsenal new <sheet>              Create a new cheat sheet")
+            print("  arsenal sheets                   List all loaded cheat files")
             print("")
             print("Keys:")
             print("  ←/→         Switch category")

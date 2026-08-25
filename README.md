@@ -2,7 +2,9 @@
 
 Native terminal cheat launcher for pentesters. A fast, keyboard-driven TUI for managing and executing penetration testing commands.
 
-Built with Python's curses library for maximum compatibility - works on macOS, Linux, and anywhere with a terminal.
+Based on [aliasr](https://github.com/Mojo8898/aliasr) - rebuilt with Python's curses library for maximum compatibility (works on macOS, Linux, and anywhere with a terminal).
+
+![Arsenal Screenshot](assets/screenshot.png)
 
 ## Features
 
@@ -169,6 +171,6 @@ MIT License - See [LICENSE](LICENSE) for details.
 
 ## Credits
 
-Inspired by [aliasr](https://github.com/Mojo8898/aliasr) - Arsenal provides a native curses alternative that works reliably across all platforms.
+**Primary reference**: [aliasr](https://github.com/Mojo8898/aliasr) by Mojo8898 - Arsenal is a native curses rewrite that works reliably on macOS and all platforms.
 
 Built by [Veil Protocol](https://github.com/veil-protocol)
